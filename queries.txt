@@ -1,0 +1,98 @@
+/* Query 1 - Which movies are families watching? */
+SELECT f.title AS film_title, c.name AS category_name, COUNT(*) AS rental_count
+FROM category c
+JOIN film_category fc
+ON c.category_id = fc.category_id
+JOIN film f
+ON fc.film_id = f.film_id
+JOIN inventory i
+ON i.film_id = f.film_id
+JOIN rental r
+ON i.inventory_id = r.inventory_id
+WHERE c.name IN ('Animation', 'Children', 'Classics', 'Comedy', 'Family', 'Music')
+GROUP BY 1, 2
+ORDER BY 2, 1
+
+/* Query 2 */
+SELECT f.title AS title, c.name AS name, f.rental_duration AS rental_duration,
+NTILE(4) OVER (ORDER BY f.rental_duration) AS standard_quartile
+FROM category c
+JOIN film_category fc
+ON c.category_id = fc.category_id
+JOIN film f
+ON fc.film_id = f.film_id
+WHERE c.name IN ('Animation', 'Children', 'Classics', 'Comedy', 'Family', 'Music')
+
+/* Query 3 - How does rental duration vary for each film category? */
+SELECT name, standard_quartile, count(*) as count
+FROM
+    (SELECT c.name as name, 
+     NTILE(4) OVER (ORDER BY f.rental_duration) AS standard_quartile
+     FROM category c
+     JOIN film_category fc
+     ON c.category_id = fc.category_id
+     JOIN film f
+     ON fc.film_id = f.film_id
+     WHERE c.name IN ('Animation', 'Children', 'Classics', 'Comedy', 'Family', 'Music')) a
+GROUP BY name, standard_quartile
+ORDER BY name, standard_quartile
+
+/* Query 4 - How do the stores compare in the count of rental orders during every month since their opening?*/
+SELECT  DATE_PART('month', r.rental_date) AS rental_month,
+DATE_PART('year', r.rental_date) AS rental_year,  
+store.store_id AS store_id, 
+COUNT(*) count_rentals
+FROM store
+JOIN staff
+ON store.store_id = staff.store_id
+JOIN rental r
+ON r.staff_id = staff.staff_id
+GROUP BY 1, 2, 3
+ORDER BY count_rentals DESC
+
+/* Query 5 - Which months had more purchases of rentals among the top 10 paying customers during 2007?*/
+select date_trunc('month',p.payment_date) as pay_mon, concat(c.first_name,' ',c.last_name) as fullname, count(p.amount) as pay_countpermon,
+SUM(p.amount) AS pay_amount
+from (
+	SELECT c.customer_id, SUM(p.amount) AS pay_amount
+	FROM customer c
+	JOIN payment p
+	ON p.customer_id = c.customer_id
+	GROUP BY c.customer_id
+	ORDER BY pay_amount DESC
+	LIMIT 10
+) b
+join customer c
+on b.customer_id = c.customer_id
+join payment p
+on p.customer_id = c.customer_id
+WHERE payment_date >= '2007-01-01' AND payment_date < '2008-01-01'
+group by pay_mon,fullname
+order by fullname,pay_mon
+
+
+/* Query 6 */
+
+select *,
+lag(d.pay_amount) over (partition by fullname order by d.pay_amount) as lag,
+(pay_amount - COALESCE(LAG(d.pay_amount) OVER (PARTITION BY fullname ORDER BY d.pay_mon), 0)) as difference
+from(
+  	select date_trunc('month',p.payment_date) as pay_mon, 		
+	concat(c.first_name,' ',c.last_name) as fullname, 
+	SUM(p.amount) AS pay_amount
+	from (
+	SELECT c.customer_id, SUM(p.amount) AS pay_amount
+	FROM customer c
+	inner JOIN payment p
+	ON p.customer_id = c.customer_id
+	GROUP BY c.customer_id
+	ORDER BY pay_amount DESC
+	LIMIT 10) b
+	inner join customer c
+	on b.customer_id = c.customer_id
+	inner join payment p
+	on p.customer_id = c.customer_id
+	WHERE payment_date >= '2007-01-01' 
+	group by pay_mon,fullname
+) d
+order by difference desc
